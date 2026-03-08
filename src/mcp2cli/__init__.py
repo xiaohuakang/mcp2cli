@@ -802,7 +802,7 @@ def _fetch_mcp_tools(
 
 
 def main():
-    pre = argparse.ArgumentParser(add_help=False)
+    pre = argparse.ArgumentParser(add_help=False, allow_abbrev=False)
     pre.add_argument("--spec", default=None, help="OpenAPI spec URL or file path")
     pre.add_argument("--mcp", default=None, help="MCP server URL (HTTP/SSE)")
     pre.add_argument("--mcp-stdio", default=None, help="MCP server command (stdio)")

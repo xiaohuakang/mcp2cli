@@ -1,0 +1,253 @@
+"""Tests for helper functions and data structures."""
+
+import json
+
+from mcp2cli import (
+    ParamDef,
+    CommandDef,
+    cache_key_for,
+    coerce_value,
+    extract_mcp_commands,
+    extract_openapi_commands,
+    load_cached,
+    output_result,
+    resolve_refs,
+    save_cache,
+    schema_type_to_python,
+    to_kebab,
+)
+
+
+class TestSchemaTypeToPython:
+    def test_integer(self):
+        assert schema_type_to_python({"type": "integer"}) == (int, "")
+
+    def test_number(self):
+        assert schema_type_to_python({"type": "number"}) == (float, "")
+
+    def test_boolean(self):
+        assert schema_type_to_python({"type": "boolean"}) == (None, "")
+
+    def test_string(self):
+        assert schema_type_to_python({"type": "string"}) == (str, "")
+
+    def test_array(self):
+        py_type, suffix = schema_type_to_python({"type": "array"})
+        assert py_type is str
+        assert "JSON array" in suffix
+
+    def test_object(self):
+        py_type, suffix = schema_type_to_python({"type": "object"})
+        assert py_type is str
+        assert "JSON object" in suffix
+
+    def test_missing_type(self):
+        assert schema_type_to_python({}) == (str, "")
+
+
+class TestCoerceValue:
+    def test_none(self):
+        assert coerce_value(None, {"type": "string"}) is None
+
+    def test_integer(self):
+        assert coerce_value("42", {"type": "integer"}) == 42
+
+    def test_number(self):
+        assert coerce_value("3.14", {"type": "number"}) == 3.14
+
+    def test_boolean(self):
+        assert coerce_value(True, {"type": "boolean"}) is True
+
+    def test_array_json(self):
+        assert coerce_value('[1, 2, 3]', {"type": "array"}) == [1, 2, 3]
+
+    def test_object_json(self):
+        assert coerce_value('{"a": 1}', {"type": "object"}) == {"a": 1}
+
+    def test_invalid_json_passthrough(self):
+        assert coerce_value("not json", {"type": "array"}) == "not json"
+
+    def test_string(self):
+        assert coerce_value("hello", {"type": "string"}) == "hello"
+
+
+class TestToKebab:
+    def test_camel_case(self):
+        assert to_kebab("findPetsByStatus") == "find-pets-by-status"
+
+    def test_underscores(self):
+        assert to_kebab("list_items") == "list-items"
+
+    def test_already_kebab(self):
+        assert to_kebab("list-items") == "list-items"
+
+    def test_mixed(self):
+        assert to_kebab("getHTTPResponse") == "get-httpresponse"
+
+
+class TestOutputResult:
+    def test_raw_string(self, capsys):
+        output_result("hello", raw=True)
+        assert capsys.readouterr().out.strip() == "hello"
+
+    def test_raw_dict(self, capsys):
+        output_result({"a": 1}, raw=True)
+        assert json.loads(capsys.readouterr().out) == {"a": 1}
+
+    def test_pretty_dict(self, capsys):
+        output_result({"a": 1}, pretty=True)
+        out = capsys.readouterr().out
+        assert '"a": 1' in out
+        assert "\n" in out  # indented
+
+    def test_json_string_parsed(self, capsys):
+        output_result('{"x": 2}', pretty=True)
+        out = capsys.readouterr().out
+        assert '"x": 2' in out
+
+    def test_non_json_string(self, capsys):
+        output_result("plain text", pretty=True)
+        assert capsys.readouterr().out.strip() == "plain text"
+
+
+class TestCaching:
+    def test_roundtrip(self, tmp_path, monkeypatch):
+        import mcp2cli
+
+        monkeypatch.setattr(mcp2cli, "CACHE_DIR", tmp_path)
+        data = {"foo": "bar"}
+        save_cache("testkey", data)
+        assert load_cached("testkey", 3600) == data
+
+    def test_expired(self, tmp_path, monkeypatch):
+        import mcp2cli
+        import time
+
+        monkeypatch.setattr(mcp2cli, "CACHE_DIR", tmp_path)
+        save_cache("testkey", {"a": 1})
+        # Set mtime in the past
+        cache_file = tmp_path / "testkey.json"
+        import os
+
+        old_time = time.time() - 7200
+        os.utime(cache_file, (old_time, old_time))
+        assert load_cached("testkey", 3600) is None
+
+    def test_missing(self, tmp_path, monkeypatch):
+        import mcp2cli
+
+        monkeypatch.setattr(mcp2cli, "CACHE_DIR", tmp_path)
+        assert load_cached("nonexistent", 3600) is None
+
+    def test_cache_key_deterministic(self):
+        k1 = cache_key_for("https://example.com/spec.json")
+        k2 = cache_key_for("https://example.com/spec.json")
+        assert k1 == k2
+
+    def test_cache_key_different(self):
+        k1 = cache_key_for("https://example.com/a.json")
+        k2 = cache_key_for("https://example.com/b.json")
+        assert k1 != k2
+
+
+class TestResolveRefs:
+    def test_simple_ref(self, petstore_spec_with_refs):
+        resolved = resolve_refs(petstore_spec_with_refs)
+        params = resolved["paths"]["/pets"]["get"]["parameters"]
+        assert len(params) == 1
+        assert params[0]["name"] == "limit"
+        assert "$ref" not in params[0]
+
+    def test_no_refs_unchanged(self, petstore_spec):
+        resolved = resolve_refs(petstore_spec)
+        assert resolved["paths"]["/pets"]["get"]["operationId"] == "listPets"
+
+    def test_circular_ref_safe(self):
+        spec = {
+            "a": {"$ref": "#/b"},
+            "b": {"$ref": "#/a"},
+        }
+        resolved = resolve_refs(spec)
+        # Should not infinite loop — returns node with $ref intact
+        assert "$ref" in resolved["a"] or "$ref" in resolved["b"]
+
+
+class TestExtractOpenAPICommands:
+    def test_command_count(self, petstore_spec):
+        cmds = extract_openapi_commands(petstore_spec)
+        # listPets, createPet, getPet, deletePet, updatePet
+        assert len(cmds) == 5
+
+    def test_command_names(self, petstore_spec):
+        cmds = extract_openapi_commands(petstore_spec)
+        names = {c.name for c in cmds}
+        assert "list-pets" in names
+        assert "create-pet" in names
+        assert "get-pet" in names
+        assert "delete-pet" in names
+        assert "update-pet" in names
+
+    def test_list_pets_params(self, petstore_spec):
+        cmds = extract_openapi_commands(petstore_spec)
+        list_pets = next(c for c in cmds if c.name == "list-pets")
+        assert list_pets.method == "get"
+        assert list_pets.path == "/pets"
+        param_names = {p.name for p in list_pets.params}
+        assert "limit" in param_names
+        assert "status" in param_names
+
+    def test_create_pet_body(self, petstore_spec):
+        cmds = extract_openapi_commands(petstore_spec)
+        create = next(c for c in cmds if c.name == "create-pet")
+        assert create.has_body
+        assert create.method == "post"
+        body_params = [p for p in create.params if p.location == "body"]
+        assert len(body_params) == 3  # name, tag, age
+
+    def test_path_param(self, petstore_spec):
+        cmds = extract_openapi_commands(petstore_spec)
+        get_pet = next(c for c in cmds if c.name == "get-pet")
+        path_params = [p for p in get_pet.params if p.location == "path"]
+        assert len(path_params) == 1
+        assert path_params[0].original_name == "petId"
+
+    def test_enum_choices(self, petstore_spec):
+        cmds = extract_openapi_commands(petstore_spec)
+        list_pets = next(c for c in cmds if c.name == "list-pets")
+        status_param = next(p for p in list_pets.params if p.name == "status")
+        assert status_param.choices == ["available", "pending", "sold"]
+
+
+class TestExtractMCPCommands:
+    def test_basic(self):
+        tools = [
+            {
+                "name": "echo",
+                "description": "Echo back",
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {
+                        "message": {"type": "string", "description": "Msg"},
+                    },
+                    "required": ["message"],
+                },
+            }
+        ]
+        cmds = extract_mcp_commands(tools)
+        assert len(cmds) == 1
+        assert cmds[0].name == "echo"
+        assert cmds[0].tool_name == "echo"
+        assert len(cmds[0].params) == 1
+        assert cmds[0].params[0].required
+
+    def test_underscore_to_kebab(self):
+        tools = [
+            {
+                "name": "list_items",
+                "description": "List",
+                "inputSchema": {"type": "object", "properties": {}},
+            }
+        ]
+        cmds = extract_mcp_commands(tools)
+        assert cmds[0].name == "list-items"
+        assert cmds[0].tool_name == "list_items"
