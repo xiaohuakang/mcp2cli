@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="assets/hero.png" alt="mcp2cli — one CLI for every API" width="700">
+  <img src="https://raw.githubusercontent.com/knowsuchagency/mcp2cli/main/assets/hero.png" alt="mcp2cli — one CLI for every API" width="700">
 </p>
 
 <h1 align="center">mcp2cli</h1>
