@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-__version__ = "1.0.1"
+__version__ = "1.1.0"
 
 import argparse
 import copy
@@ -560,20 +560,6 @@ def execute_openapi(
 # ---------------------------------------------------------------------------
 
 
-def _require_mcp():
-    try:
-        import mcp  # noqa: F401
-
-        return True
-    except ImportError:
-        print(
-            "MCP support requires the mcp package. Install with:\n"
-            "  pip install mcp2cli[mcp]\n"
-            "  # or: pip install mcp",
-            file=sys.stderr,
-        )
-        sys.exit(1)
-
 
 def run_mcp_http(
     url: str,
@@ -588,7 +574,7 @@ def run_mcp_http(
     refresh: bool,
     toon: bool = False,
 ):
-    _require_mcp()
+
     import anyio
 
     async def _run():
@@ -633,7 +619,7 @@ def run_mcp_stdio(
     refresh: bool,
     toon: bool = False,
 ):
-    _require_mcp()
+
     import anyio
 
     async def _run():
@@ -716,7 +702,7 @@ def handle_mcp(
     refresh: bool,
     toon: bool = False,
 ):
-    _require_mcp()
+
 
     key = cache_key_override or cache_key_for(source)
 

@@ -15,8 +15,8 @@
 ```bash
 pip install mcp2cli
 
-# With MCP support
-pip install mcp2cli[mcp]
+# Or run directly without installing
+uvx mcp2cli --help
 ```
 
 ## Usage
@@ -260,7 +260,7 @@ Both adapters produce the same internal `CommandDef` structure, so the CLI build
 
 ```bash
 # Install with test + MCP deps
-uv sync --extra test --extra mcp
+uv sync --extra test
 
 # Run tests (96 tests covering OpenAPI, MCP stdio, MCP HTTP, caching, and token savings)
 uv run pytest tests/ -v
