@@ -47,6 +47,7 @@ class ParamDef:
     description: str = ""
     choices: list | None = None
     location: str = "body"  # path|query|header|body|tool_input
+    schema: dict = field(default_factory=dict)
 
 
 @dataclass
@@ -125,14 +126,40 @@ def schema_type_to_python(schema: dict) -> tuple[type | None, str]:
     return str, ""
 
 
+def _coerce_item(value: str, item_type: str | None):
+    """Coerce a single string value to the given JSON schema type."""
+    if item_type == "integer":
+        return int(value)
+    if item_type == "number":
+        return float(value)
+    if item_type == "boolean":
+        return value.lower() in ("true", "1", "yes")
+    return value
+
+
 def coerce_value(value, schema: dict):
     if value is None:
         return None
     t = schema.get("type")
-    if t in ("array", "object"):
+    if t == "array":
+        if isinstance(value, list):
+            return value
+        if isinstance(value, str):
+            try:
+                parsed = json.loads(value)
+                if isinstance(parsed, list):
+                    return parsed
+            except (json.JSONDecodeError, TypeError):
+                pass
+            item_type = schema.get("items", {}).get("type")
+            if "," in value:
+                return [_coerce_item(v.strip(), item_type) for v in value.split(",")]
+            return [_coerce_item(value, item_type)]
+        return value
+    if t == "object":
         try:
             return json.loads(value)
-        except json.JSONDecodeError:
+        except (json.JSONDecodeError, TypeError):
             return value
     if t == "boolean":
         return bool(value)
@@ -594,6 +621,7 @@ def extract_mcp_commands(tools: list[dict]) -> list[CommandDef]:
                     description=(prop_schema.get("description") or prop_name) + suffix,
                     choices=prop_schema.get("enum"),
                     location="tool_input",
+                    schema=prop_schema,
                 )
             )
 
@@ -1658,7 +1686,7 @@ def handle_mcp(
         for p in cmd.params:
             val = getattr(args, p.name.replace("-", "_"), None)
             if val is not None:
-                arguments[p.original_name] = val
+                arguments[p.original_name] = coerce_value(val, p.schema)
 
     if is_stdio:
         run_mcp_stdio(
@@ -2093,7 +2121,7 @@ def main():
             for p in cmd.params:
                 val = getattr(args, p.name.replace("-", "_"), None)
                 if val is not None:
-                    arguments[p.original_name] = val
+                    arguments[p.original_name] = coerce_value(val, p.schema)
 
         result = _session_request(
             sess_name, "call_tool", {"name": cmd.tool_name, "arguments": arguments}

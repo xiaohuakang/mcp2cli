@@ -68,9 +68,46 @@ class TestCoerceValue:
         assert coerce_value('{"a": 1}', {"type": "object"}) == {"a": 1}
 
     def test_invalid_json_passthrough(self):
-        assert coerce_value("not json", {"type": "array"}) == "not json"
+        # Non-JSON strings are now wrapped as single-element arrays for array type
+        assert coerce_value("not json", {"type": "array"}) == ["not json"]
 
     def test_string(self):
+        assert coerce_value("hello", {"type": "string"}) == "hello"
+
+    def test_array_comma_separated(self):
+        assert coerce_value("TO_DO,IN_PROGRESS", {"type": "array"}) == [
+            "TO_DO",
+            "IN_PROGRESS",
+        ]
+
+    def test_array_single_value(self):
+        assert coerce_value("TO_DO", {"type": "array"}) == ["TO_DO"]
+
+    def test_array_json_passthrough(self):
+        assert coerce_value('["TO_DO","IN_PROGRESS"]', {"type": "array"}) == [
+            "TO_DO",
+            "IN_PROGRESS",
+        ]
+
+    def test_array_already_list(self):
+        assert coerce_value(["a", "b"], {"type": "array"}) == ["a", "b"]
+
+    def test_array_number_items(self):
+        assert coerce_value(
+            "1,2,3", {"type": "array", "items": {"type": "number"}}
+        ) == [1.0, 2.0, 3.0]
+
+    def test_array_integer_items(self):
+        assert coerce_value(
+            "1,2,3", {"type": "array", "items": {"type": "integer"}}
+        ) == [1, 2, 3]
+
+    def test_array_boolean_items(self):
+        assert coerce_value(
+            "true,false", {"type": "array", "items": {"type": "boolean"}}
+        ) == [True, False]
+
+    def test_non_array_unaffected(self):
         assert coerce_value("hello", {"type": "string"}) == "hello"
 
 
