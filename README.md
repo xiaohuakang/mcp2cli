@@ -6,7 +6,8 @@
 
 <p align="center">
   Turn any MCP server or OpenAPI spec into a CLI — at runtime, with zero codegen.<br>
-  <strong>Save 96–99% of the tokens wasted on tool schemas every turn.</strong>
+  <strong>Save 96–99% of the tokens wasted on tool schemas every turn.</strong><br><br>
+  <a href="https://www.orangecountyai.com/blog/mcp2cli-one-cli-for-every-api-zero-wasted-tokens"><strong>Read the full writeup →</strong></a>
 </p>
 
 ## Install
@@ -202,15 +203,15 @@ Subcommands and their flags are generated dynamically from the spec or MCP serve
 
 If you've connected an LLM to more than a handful of tools, you've felt the pain. Every MCP server, every OpenAPI endpoint — their full schemas get injected into the system prompt on *every single turn*. Your 50-endpoint API costs 3,579 tokens of context *before the conversation even starts*, and that bill is paid again on every message, whether the model touches those tools or not.
 
-This isn't a theoretical concern. [Kagan Yilmaz documented it well](https://kanyilmaz.me/2026/02/23/cli-vs-mcp.html) in his analysis of CLI vs MCP costs, showing that 6 MCP servers with 84 tools consume ~15,540 tokens at session start. His project [CLIHub](https://kanyilmaz.me/2026/02/23/cli-vs-mcp.html) demonstrated that converting MCP servers to CLIs and letting the LLM discover tools on-demand slashes that cost by 92-98%.
+This isn't a theoretical concern. 6 MCP servers with 84 tools consume ~15,540 tokens at session start. Converting those servers to CLIs and letting the LLM discover tools on-demand can slash that cost by 92-98%.
 
-The problem is well-recognized enough that Anthropic built [Tool Search](https://www.anthropic.com/engineering/advanced-tool-use) directly into their API — a deferred-loading pattern where tools are marked `defer_loading: true` and Claude discovers them via a search index (~500 tokens) instead of loading all schemas upfront. It typically cuts token usage by 85%. But as [Kagan noted](https://kanyilmaz.me/2026/02/23/cli-vs-mcp.html), when Tool Search fetches a tool, it still pulls the full JSON Schema into context.
+Even Anthropic recognized the problem, building [Tool Search](https://www.anthropic.com/engineering/advanced-tool-use) directly into their API — a deferred-loading pattern where tools are marked `defer_loading: true` and Claude discovers them via a search index (~500 tokens) instead of loading all schemas upfront. It typically cuts token usage by 85%. But when Tool Search fetches a tool, the full JSON Schema still enters context (~121 tokens/tool).
 
 mcp2cli takes the CLI approach further.
 
 ## What mcp2cli adds
 
-CLIHub showed the path: give the LLM a CLI instead of raw tool schemas, and let it `--list` and `--help` its way to what it needs. Anthropic's Tool Search showed that even first-party providers see the value in lazy loading. mcp2cli builds on both ideas with a few key differences:
+The idea is simple: give the LLM a CLI instead of raw tool schemas, and let it `--list` and `--help` its way to what it needs. mcp2cli builds on this with a few key differences:
 
 - **No codegen, no recompilation.** Point mcp2cli at a spec URL or MCP server and the CLI exists immediately. When the server adds new endpoints, they appear on the next invocation — no rebuild step, no generated code to commit.
 - **Provider-agnostic.** Tool Search is an Anthropic API feature. mcp2cli works with any LLM — Claude, GPT, Gemini, local models — because it's just a CLI tool the model can shell out to.
@@ -305,14 +306,6 @@ The LLM discovers what it needs, when it needs it. Everything else stays out of 
 
 This is where it really hurts. Connect 3 MCP servers (a task manager, a filesystem server, and a database server — 60 tools total) and you're paying 7,238 tokens per turn. Over a 20-turn conversation, that's **145,060 tokens** just for tool schemas. mcp2cli reduces that to **3,288 tokens** — a **97.7% reduction** — even after accounting for `--list` discovery (928 tokens) and `--help` for 6 unique tools (720 tokens).
 
-### Aren't there already solutions for this?
-
-Yes, partially. The MCP spec defines [dynamic tool discovery](https://modelcontextprotocol.info/docs/concepts/tools/#tool-discovery-and-updates) via `notifications/tools/list_changed`, but that's about reacting to server-side changes — the initial `tools/list` response still returns all schemas at once, and most clients inject them into every turn.
-
-Anthropic's [Tool Search](https://www.anthropic.com/engineering/advanced-tool-use) goes further: tools marked `defer_loading: true` stay out of context until Claude searches for them, cutting ~85% of upfront token cost. But it's Claude-API-only, and when a tool is fetched, the full JSON schema still enters context (~121 tokens/tool).
-
-mcp2cli takes the CLI approach: `--list` returns compact summaries (~16 tokens/tool), `--help` returns human-readable text (typically cheaper than raw JSON schema), and it works with any LLM provider. The tradeoff is an extra shell invocation per discovery step.
-
 ## How it works
 
 1. **Load** -- Fetch the OpenAPI spec or connect to the MCP server. Resolve `$ref`s. Cache for reuse.
@@ -335,11 +328,9 @@ uv run pytest tests/ -v
 uv run pytest tests/test_token_savings.py -v -s
 ```
 
-## Acknowledgments
+---
 
-This project was inspired by [Kagan Yilmaz's analysis of CLI vs MCP token costs](https://kanyilmaz.me/2026/02/23/cli-vs-mcp.html) and his work on [CLIHub](https://kanyilmaz.me/2026/02/23/cli-vs-mcp.html). His observation that CLI-based tool access is dramatically more token-efficient than native MCP injection was the spark for mcp2cli. Where CLIHub generates static CLIs from MCP servers, mcp2cli takes a different approach: it reads schemas at runtime, so there's no codegen step and no rebuild when the server adds or changes tools. It also extends the pattern to OpenAPI specs — any REST API with a spec file gets the same treatment.
-
-Anthropic's [Advanced Tool Use](https://www.anthropic.com/engineering/advanced-tool-use) guide describes Tool Search, a first-party deferred-loading mechanism built into the Claude API. It solves the same core problem — don't pay for tools you're not using — but at the API level rather than the CLI level. mcp2cli complements this by working with any LLM provider, returning more compact discovery output, and covering OpenAPI specs alongside MCP servers.
+<sub>mcp2cli builds on ideas from [CLIHub](https://kanyilmaz.me/2026/02/23/cli-vs-mcp.html) by Kagan Yilmaz (CLI-based tool access for token efficiency) and Anthropic's [Tool Search](https://www.anthropic.com/engineering/advanced-tool-use) (deferred tool loading). See our [blog post](https://www.orangecountyai.com/blog/mcp2cli-one-cli-for-every-api-zero-wasted-tokens) for the full analysis.</sub>
 
 ## License
 
