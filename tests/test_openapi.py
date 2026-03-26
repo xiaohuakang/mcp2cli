@@ -87,6 +87,28 @@ class TestBuildArgparse:
         assert args.name == "Rex"
         assert args.tag == "dog"
 
+    def test_percent_signs_in_help_text_are_escaped(self):
+        cmds = [
+            CommandDef(
+                name="list-schedule",
+                description="显示 80% 容量",
+                params=[
+                    ParamDef(
+                        name="workload",
+                        original_name="workload",
+                        python_type=int,
+                        description="超过 90% 时告警",
+                    ),
+                ],
+            ),
+        ]
+
+        pre = argparse.ArgumentParser(add_help=False)
+        parser = build_argparse(cmds, pre)
+
+        args = parser.parse_args(["list-schedule", "--workload", "90"])
+        assert args.workload == 90
+
 
 class TestExecuteOpenAPI:
     """Integration tests against the local petstore HTTP server."""

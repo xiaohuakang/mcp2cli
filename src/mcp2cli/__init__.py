@@ -37,6 +37,7 @@ CONFIG_DIR = Path(
     os.environ.get("MCP2CLI_CONFIG_DIR", Path.home() / ".config" / "mcp2cli")
 )
 BAKED_FILE = CONFIG_DIR / "baked.json"
+ARGPARSE_HELP_PERCENT_RE = re.compile(r"(?<!%)%(?![%\(])")
 
 
 # ---------------------------------------------------------------------------
@@ -108,6 +109,11 @@ def resolve_secret(value: str) -> str:
             sys.exit(1)
         return path.read_text().rstrip("\n")
     return value
+
+
+def escape_argparse_help(help_text: str) -> str:
+    """Escape literal percent signs in help text for argparse."""
+    return ARGPARSE_HELP_PERCENT_RE.sub("%%", help_text)
 
 
 def _parse_kv_list(
@@ -1605,7 +1611,10 @@ def build_argparse(
     subparsers = parser.add_subparsers(dest="_command")
 
     for cmd in commands:
-        sub = subparsers.add_parser(cmd.name, help=cmd.description)
+        sub = subparsers.add_parser(
+            cmd.name,
+            help=escape_argparse_help(cmd.description),
+        )
         sub.set_defaults(_cmd=cmd)
 
         if cmd.has_body:
@@ -1636,7 +1645,7 @@ def build_argparse(
                 kwargs["required"] = True
             else:
                 kwargs.setdefault("default", None)
-            kwargs["help"] = p.description
+            kwargs["help"] = escape_argparse_help(p.description)
             if p.choices:
                 kwargs["choices"] = p.choices
             sub.add_argument(flag, **kwargs)
